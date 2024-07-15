@@ -4,13 +4,16 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"os"
+	"path/filepath"
 	"sort"
 
 	"gocv.io/x/gocv"
 )
 
 func main() {
-	imagePath := "6692b8d3da910_IMG_20240713_201939_905.jpg"
+	imagePath := getLastImageToParse()
+
 	img := gocv.IMRead(imagePath, gocv.IMReadColor)
 	if img.Empty() {
 		fmt.Println("Error reading image")
@@ -31,7 +34,7 @@ func main() {
 	// Apply adaptive thresholding
 	thresh := gocv.NewMat()
 	defer thresh.Close()
-	gocv.AdaptiveThreshold(gray, &thresh, 255, gocv.AdaptiveThresholdMean, gocv.ThresholdBinaryInv, 15, 10)
+	gocv.AdaptiveThreshold(gaussian, &thresh, 255, gocv.AdaptiveThresholdMean, gocv.ThresholdBinaryInv, 15, 10)
 
 	// Detect horizontal lines
 	horizontalKernel := gocv.GetStructuringElement(gocv.MorphRect, image.Pt(40, 1))
@@ -57,18 +60,22 @@ func main() {
 	var matrix [][]string
 
 	// Define color ranges (with some flexibility)
-	greenLower := color.RGBA{35, 40, 40, 255}
-	greenUpper := color.RGBA{85, 255, 255, 255}
-	orangeLower := color.RGBA{10, 100, 100, 255}
-	orangeUpper := color.RGBA{25, 255, 255, 255}
+	greenLower := color.RGBA{R: 35, G: 40, B: 40, A: 255}
+	greenUpper := color.RGBA{R: 85, G: 255, B: 255, A: 255}
+	orangeLower := color.RGBA{R: 10, G: 100, B: 100, A: 255}
+	orangeUpper := color.RGBA{R: 25, G: 255, B: 255, A: 255}
+
+	gaussianImg := gocv.NewMat()
+	gocv.GaussianBlur(img, &gaussianImg, image.Pt(5, 5), 0, 0, gocv.BorderDefault)
+	defer gaussianImg.Close()
 
 	// Extract and detect color from each cell
 	for i := 0; i < len(horizontalPositions)-1; i++ {
 		var row []string
 		for j := 0; j < len(verticalPositions)-1; j++ {
-			cell := img.Region(image.Rect(verticalPositions[j], horizontalPositions[i], verticalPositions[j+1], horizontalPositions[i+1]))
-			color := detectColor(cell, greenLower, greenUpper, orangeLower, orangeUpper)
-			row = append(row, color)
+			cell := gaussianImg.Region(image.Rect(verticalPositions[j], horizontalPositions[i], verticalPositions[j+1], horizontalPositions[i+1]))
+			colorDetected := detectColor(cell, greenLower, greenUpper, orangeLower, orangeUpper)
+			row = append(row, colorDetected)
 		}
 		matrix = append(matrix, row)
 	}
@@ -76,10 +83,16 @@ func main() {
 	// delete rows 0 and 1
 	matrix = append(matrix[:0], matrix[2:]...)
 
+	// delete column 0
+	for i := 0; i < len(matrix); i++ {
+		matrix[i] = append(matrix[i][:0], matrix[i][1:]...)
+	}
+
 	// Print the matrix
 	for i, row := range matrix {
 		fmt.Printf("Row %d: ", i)
-		fmt.Println(row)
+		fmt.Print(row)
+		fmt.Println()
 	}
 
 	// work with row 1 - is 1.2 group
@@ -101,6 +114,32 @@ func main() {
 	// write a function that takes the available hours and returns the ranges
 	ranges := getRanges(availableHours)
 	fmt.Println("Available ranges: ", ranges)
+}
+
+func getLastImageToParse() string {
+	// get a list of files in the directory by mask *.jpg
+	fileList, err := filepath.Glob("*.jpg")
+	if err != nil {
+		panic(err)
+	}
+
+	// sort-by-date, the newest file is the first
+	sort.Slice(fileList, func(i, j int) bool {
+		infoI, errStat := os.Stat(fileList[i])
+		if errStat != nil {
+			return false
+		}
+
+		infoJ, errStat := os.Stat(fileList[j])
+		if errStat != nil {
+			return false
+		}
+
+		return infoI.ModTime().After(infoJ.ModTime())
+	})
+
+	// get the first file from the list
+	return fileList[0]
 }
 
 func getRanges(availableHours []int) []string {
@@ -148,8 +187,14 @@ func detectColor(img gocv.Mat, greenLower, greenUpper, orangeLower, orangeUpper 
 	defer greenMask.Close()
 	orangeMask := gocv.NewMat()
 	defer orangeMask.Close()
-	gocv.InRangeWithScalar(hsv, gocv.NewScalar(float64(greenLower.R), float64(greenLower.G), float64(greenLower.B), 0), gocv.NewScalar(float64(greenUpper.R), float64(greenUpper.G), float64(greenUpper.B), 0), &greenMask)
-	gocv.InRangeWithScalar(hsv, gocv.NewScalar(float64(orangeLower.R), float64(orangeLower.G), float64(orangeLower.B), 0), gocv.NewScalar(float64(orangeUpper.R), float64(orangeUpper.G), float64(orangeUpper.B), 0), &orangeMask)
+	gocv.InRangeWithScalar(hsv,
+		gocv.NewScalar(float64(greenLower.R), float64(greenLower.G), float64(greenLower.B), 0),
+		gocv.NewScalar(float64(greenUpper.R), float64(greenUpper.G), float64(greenUpper.B), 0),
+		&greenMask)
+	gocv.InRangeWithScalar(hsv,
+		gocv.NewScalar(float64(orangeLower.R), float64(orangeLower.G), float64(orangeLower.B), 0),
+		gocv.NewScalar(float64(orangeUpper.R), float64(orangeUpper.G), float64(orangeUpper.B), 0),
+		&orangeMask)
 	if gocv.CountNonZero(greenMask) > 0 {
 		return "green"
 	}
