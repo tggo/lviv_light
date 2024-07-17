@@ -84,9 +84,9 @@ func main() {
 	matrix = append(matrix[:0], matrix[2:]...)
 
 	// delete column 0
-	for i := 0; i < len(matrix); i++ {
-		matrix[i] = append(matrix[i][:0], matrix[i][1:]...)
-	}
+	// for i := 0; i < len(matrix); i++ {
+	// 	matrix[i] = append(matrix[i][:0], matrix[i][1:]...)
+	// }
 
 	// Print the matrix
 	for i, row := range matrix {
@@ -102,7 +102,7 @@ func main() {
 	// write a function that takes the matrix and returns the available hours
 
 	availableHours := getAvailableHours(matrix[1])
-	fmt.Println("Available hours: ", availableHours)
+	fmt.Printf("Available hours: %v is %dh of 24h\n", availableHours, len(availableHours))
 
 	// concatenate the available hours into ranges
 	// e.g. 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 to 0-10
