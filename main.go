@@ -6,13 +6,22 @@ import (
 	"image/color"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strings"
 
+	"github.com/go-resty/resty/v2"
 	"gocv.io/x/gocv"
 )
 
 func main() {
-	imagePath := getLastImageToParse()
+	url := getUrlToImage()
+
+	fmt.Println("URL to image: ", url)
+
+	imagePath := "/tmp/image.jpg"
+
+	downloadImageFromSite(url, imagePath)
 
 	img := gocv.IMRead(imagePath, gocv.IMReadColor)
 	if img.Empty() {
@@ -88,10 +97,14 @@ func main() {
 	// 	matrix[i] = append(matrix[i][:0], matrix[i][1:]...)
 	// }
 
+	if len(matrix[0]) != 24 {
+		panic("wrong parsing column")
+	}
+
 	// Print the matrix
 	for i, row := range matrix {
-		fmt.Printf("Row %d: ", i)
-		fmt.Print(row)
+		fmt.Printf("Row %d: ", i+1)
+		fmt.Print(strings.Join(row, ""))
 		fmt.Println()
 	}
 
@@ -114,6 +127,38 @@ func main() {
 	// write a function that takes the available hours and returns the ranges
 	ranges := getRanges(availableHours)
 	fmt.Println("Available ranges: ", ranges)
+}
+
+func downloadImageFromSite(url string, path string) {
+	client := resty.New()
+	_, err := client.R().SetOutput(path).Get(url)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func getUrlToImage() string {
+
+	client := resty.New()
+	resp, err := client.R().Get("https://api.loe.lviv.ua/api/pages?page=1&synonym=power-top")
+	if err != nil {
+		panic(err)
+	}
+
+	// u003Cp\u003E\u003Cimg src=\u0022https:\/\/api.loe.lviv.ua\/media\/6696ae15ed274_IMG_20240716_194813_632.jpg\u0022 alt=\u0022\u0022
+	// get image from response use Regular Expression
+	exp := `https:\\\/\\\/api.loe.lviv.ua\\\/media\\\/[a-zA-Z0-9_]+.jpg`
+	r := regexp.MustCompile(exp)
+	urls := r.FindAllString(string(resp.Body()), -1)
+
+	url := ""
+	if len(urls) > 0 {
+		url = urls[0]
+	}
+
+	url = strings.ReplaceAll(url, "\\", "")
+
+	return url
 }
 
 func getLastImageToParse() string {
@@ -169,7 +214,7 @@ func getRanges(availableHours []int) []string {
 func getAvailableHours(row []string) []int {
 	var availableHours []int
 	for i, cell := range row {
-		if cell == "green" {
+		if cell == "+" {
 			availableHours = append(availableHours, i)
 		}
 	}
@@ -196,12 +241,12 @@ func detectColor(img gocv.Mat, greenLower, greenUpper, orangeLower, orangeUpper 
 		gocv.NewScalar(float64(orangeUpper.R), float64(orangeUpper.G), float64(orangeUpper.B), 0),
 		&orangeMask)
 	if gocv.CountNonZero(greenMask) > 0 {
-		return "green"
+		return "+"
 	}
 	if gocv.CountNonZero(orangeMask) > 0 {
-		return "orange"
+		return "-"
 	}
-	return "unknown"
+	return "."
 }
 
 func displayImage(img gocv.Mat) {
